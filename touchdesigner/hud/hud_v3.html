@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>NEURAL NETWORK SIMULATOR — HUD</title>
+<style>
+  @font-face { font-family: 'SynapseMono'; font-weight: 400; src: url('fonts/SynapseMono-Regular.ttf'); }
+  @font-face { font-family: 'SynapseMono'; font-weight: 700; src: url('fonts/SynapseMono-Bold.ttf'); }
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="720" height="1280"></canvas>
+<script>
+/*  NEURAL NETWORK SIMULATOR — live HUD overlay for TouchDesigner (Web Render TOP)
+    TD pushes state with:  hud.update({...})
+    Layout is 720x1280 (9:16) and keeps Instagram Reels safe zones clear:
+      top 0-80 (header), bottom 1030-1280 (caption), right 600-720 below y=650 (buttons).   */
+
+const W = 720, H = 1280;
+const cv = document.getElementById('c');
+const g = cv.getContext('2d');
+const FONT = '"SynapseMono", "SF Mono", Menlo, monospace';
+// glass panel rectangles (x, y, w, h) - mirrored in TouchDesigner's glass shader (build_hud_v3.py)
+const RECT = { scale: [20, 168, 262, 214], vm: [438, 168, 262, 150], map: [438, 330, 262, 150], raster: [110, 1022, 500, 150] };
+const RADIUS = 14;
+const NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const FIFTHS = [0,7,2,9,4,11,6,1,8,3,10,5];
+const MODES = ['LYDIAN','IONIAN','MIXOLYDIAN','DORIAN','AEOLIAN','PHRYGIAN','LOCRIAN'];
+
+// ------------------------------------------------------------------ state
+const S = {
+  t0: performance.now(), lastData: -1e9,
+  key: 'C', mode: 'IONIAN', tonic: 0, setRoot: 0, hue: 0.0, sat: 0.8, bri: 0.83,
+  w: new Array(12).fill(0), spike: 0.1, wob: 0.3, flow: 0, vel: 0, since: 99, nps: 0, fps: 60,
+  cells: 208, morph: 10, spines: 2600, particles: 3500,
+  events: [],          // [t, note, vel] in hud time (s)
+  vm: [],              // membrane trace samples
+  raster: [],          // [t, unit]
+  fired: 0,
+};
+const UNITS = 36;
+
+function now() { return (performance.now() - S.t0) / 1000; }
+
+function hsl(h, s, l, a=1) { return `hsla(${(h*360)%360},${s*100}%,${l*100}%,${a})`; }
+function accent(a=1) { return hsl(S.hue, 0.75, 0.68, a); }
+const WHITE = a => `rgba(236,240,246,${a})`;
+
+// ------------------------------------------------------------------ input from TouchDesigner
+window.hud = {
+  update(d) {
+    S.lastData = now();
+    for (const k of ['key','mode','tonic','setRoot','hue','sat','bri','spike','wob','flow','vel','since','nps','fps','cells','morph','spines','particles'])
+      if (d[k] !== undefined) S[k] = d[k];
+    if (d.w) S.w = d.w;
+    if (d.events) for (const e of d.events) onNote(e[0], e[1]);
+  }
+};
+
+function onNote(note, vel) {
+  const t = now();
+  S.events.push([t, note, vel]);
+  if (S.events.length > 64) S.events.shift();
+  S.fired++;
+  // cascade through a velocity-dependent share of the recorded units (mirrors the shader)
+  for (let u = 0; u < UNITS; u++) {
+    const h = frac(Math.sin(u * 12.9898 + note * 0.731) * 43758.5453);
+    if (h < 0.12 + 0.45 * vel) S.raster.push([t + frac(h * 7.13) * 0.9, u]);
+  }
+}
+function frac(x) { return x - Math.floor(x); }
+
+// ------------------------------------------------------------------ demo feed (when no TD data)
+let demoNext = 0;
+function demoTick(t) {
+  if (t - S.lastData < 1.5) return;
+  const seq = [[0,'IONIAN',1],[4,'PHRYGIAN',5],[6,'LYDIAN',0],[9,'AEOLIAN',4]];
+  const [tonic, mode, mi] = seq[Math.floor(t / 6) % 4];
+  const ivs = {IONIAN:[0,2,4,5,7,9,11],PHRYGIAN:[0,1,3,5,7,8,10],LYDIAN:[0,2,4,6,7,9,11],AEOLIAN:[0,2,3,5,7,8,10]}[mode];
+  S.key = NAMES[tonic]; S.mode = mode; S.tonic = tonic;
+  const target = (FIFTHS.indexOf(tonic) / 12);
+  S.hue += (target - S.hue) * 0.02;
+  S.bri = [1,0.83,0.67,0.5,0.33,0.17,0][MODES.indexOf(mode)];
+  for (let i = 0; i < 12; i++) S.w[i] *= 0.985;
+  if (t > demoNext) {
+    demoNext = t + 0.22 + Math.random() * 0.2;
+    const n = 60 + tonic + ivs[Math.floor(Math.random() * 7)];
+    const v = 0.5 + Math.random() * 0.5;
+    S.w[n % 12] += v; S.vel = v; S.since = 0;
+    onNote(n, v);
+  }
+  S.nps = S.events.filter(e => t - e[0] < 1).length;
+  S.flow += 0.016 * (0.35 + S.wob * 1.4);
+}
+
+// ------------------------------------------------------------------ drawing helpers
+function txt(s, x, y, size=11, col=WHITE(0.86), align='left', weight=400, spacing=0.08) {
+  g.shadowColor = 'rgba(0,0,0,0.85)'; g.shadowBlur = 4;
+  g.font = `${weight} ${size}px ${FONT}`;
+  g.fillStyle = col; g.textAlign = align; g.textBaseline = 'alphabetic';
+  if ('letterSpacing' in g) g.letterSpacing = `${spacing * size}px`;
+  g.fillText(s, x, y);
+  g.shadowBlur = 0;
+}
+function vtxt(s, x, y, size=11, col=WHITE(0.7), weight=400) {   // reads top-to-bottom like the reference
+  g.save(); g.translate(x, y); g.rotate(Math.PI / 2); txt(s, 0, 0, size, col, 'left', weight, 0.35); g.restore();
+}
+function line(x1, y1, x2, y2, col=WHITE(0.35), w=1) {
+  g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+}
+function rect(x, y, w, h, col=WHITE(0.18)) { g.strokeStyle = col; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, w, h); }
+function fill(x, y, w, h, col) { g.fillStyle = col; g.fillRect(x, y, w, h); }
+function brackets(x, y, w, h, l=10, col=WHITE(0.55)) {
+  g.strokeStyle = col; g.lineWidth = 1; g.beginPath();
+  g.moveTo(x, y + l); g.lineTo(x, y); g.lineTo(x + l, y);
+  g.moveTo(x + w - l, y); g.lineTo(x + w, y); g.lineTo(x + w, y + l);
+  g.moveTo(x + w, y + h - l); g.lineTo(x + w, y + h); g.lineTo(x + w - l, y + h);
+  g.moveTo(x + l, y + h); g.lineTo(x, y + h); g.lineTo(x, y + h - l);
+  g.stroke();
+}
+function rrect(x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function panel(x, y, w, h, title, tag='') {        // floating frosted-glass card (blur comes from TD)
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.45)'; g.shadowBlur = 26; g.shadowOffsetY = 10;     // float shadow
+  rrect(x, y, w, h, RADIUS); g.fillStyle = 'rgba(14,18,28,0.18)'; g.fill();
+  g.restore();
+  g.save(); rrect(x, y, w, h, RADIUS); g.clip();
+  let gr = g.createLinearGradient(x, y, x + w * 0.6, y + h);                       // sheen
+  gr.addColorStop(0, 'rgba(255,255,255,0.13)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.03)'); gr.addColorStop(1, 'rgba(255,255,255,0.0)');
+  g.fillStyle = gr; g.fillRect(x, y, w, h);
+  gr = g.createRadialGradient(x + w * 0.15, y, 0, x + w * 0.15, y, w * 0.7);         // accent glow from the music colour
+  gr.addColorStop(0, accent(0.16)); gr.addColorStop(1, accent(0));
+  g.fillStyle = gr; g.fillRect(x, y, w, h);
+  g.restore();
+  g.lineWidth = 1;
+  gr = g.createLinearGradient(0, y, 0, y + h);                                        // rim light: bright top, faint bottom
+  gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.14)'); gr.addColorStop(1, 'rgba(255,255,255,0.24)');
+  rrect(x + 0.5, y + 0.5, w - 1, h - 1, RADIUS); g.strokeStyle = gr; g.stroke();
+  g.fillStyle = accent(1); g.beginPath(); g.arc(x + 14, y + 14, 3, 0, Math.PI * 2); g.fill();
+  txt(title, x + 24, y + 18, 9.5, WHITE(0.92), 'left', 700, 0.14);
+  if (tag) txt(tag, x + w - 12, y + 18, 8, WHITE(0.5), 'right', 400, 0.1);
+  line(x + 12, y + 27, x + w - 12, y + 27, WHITE(0.12));
+}
+function bar(x, y, w, h, v, col) { fill(x, y, w, h, WHITE(0.08)); fill(x, y, Math.max(1, w * Math.min(1, Math.max(0, v))), h, col); }
+
+// ------------------------------------------------------------------ sections
+function header(t) {
+  const x = 22, y = 104;
+  txt('NEURAL NETWORK SIMULATOR', x, y, 17, WHITE(0.97), 'left', 700, 0.1);
+  const live = (Math.floor(t * 2) % 2) === 0;
+  g.fillStyle = live ? 'rgba(255,72,72,0.95)' : 'rgba(255,72,72,0.35)';
+  g.beginPath(); g.arc(x + 4, y + 17, 3.5, 0, Math.PI * 2); g.fill();
+  const ts = new Date(t * 1000).toISOString().substr(11, 11);
+  txt(`LIVE  T+${ts}  ${S.fps.toFixed(0)} FPS  ·  CORTEX L2/3  ·  ${S.cells} CELLS`, x + 14, y + 21, 8.5, WHITE(0.7), 'left', 400, 0.08);
+  txt(`BITWIG › IAC › TOUCHDESIGNER  ·  GEO BLENDER  ·  ${S.morph} MORPHOLOGIES  ·  ${(S.spines / 1000).toFixed(1)}K SPINES`, x, y + 37, 7.5, WHITE(0.45), 'left', 400, 0.08);
+  txt('@mujganar', W - 22, y, 10.5, WHITE(0.85), 'right', 700, 0.08);
+  txt('SESSION 0x' + (0x3F2A + Math.floor(S.flow) % 4096).toString(16).toUpperCase(), W - 22, y + 21, 8, WHITE(0.45), 'right');
+}
+
+function scalePanel(t) {
+  const [x, y, w, h] = RECT.scale;
+  panel(x, y, w, h, 'SCALE DETECTION', 'PCP');
+  txt(`${S.key} ${S.mode}`, x + 14, y + 58, 21, accent(1), 'left', 700, 0.04);
+  txt(`ROOT ${NAMES[S.setRoot]} MAJ · TONIC ${NAMES[S.tonic]}`, x + 14, y + 74, 8, WHITE(0.55), 'left', 400, 0.08);
+  // circle of fifths
+  const cx = x + w - 44, cy = y + 60, r = 24;
+  g.strokeStyle = WHITE(0.2); g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+  const rootPos = FIFTHS.indexOf(S.setRoot);
+  for (let i = 0; i < 12; i++) {
+    const a = -Math.PI / 2 + i / 12 * Math.PI * 2, on = i === rootPos;
+    line(cx + Math.cos(a) * (r - 3), cy + Math.sin(a) * (r - 3), cx + Math.cos(a) * (r + (on ? 6 : 2)), cy + Math.sin(a) * (r + (on ? 6 : 2)), on ? accent(1) : WHITE(0.4), on ? 2 : 1);
+  }
+  const ha = -Math.PI / 2 + S.hue * Math.PI * 2;
+  line(cx, cy, cx + Math.cos(ha) * (r - 6), cy + Math.sin(ha) * (r - 6), accent(0.95), 1.5);
+  // mode ladder
+  const my = y + 98;
+  MODES.forEach((m, i) => {
+    const yy = my + i * 13, on = m === S.mode;
+    fill(x + 14, yy - 6, 5, 5, on ? accent(1) : WHITE(0.18));
+    txt(m, x + 25, yy, 8, on ? WHITE(0.97) : WHITE(0.45), 'left', on ? 700 : 400, 0.08);
+    bar(x + 108, yy - 4, 34, 3, 1 - i / 6, on ? accent(0.9) : WHITE(0.22));
+  });
+  // pitch-class histogram
+  const hx = x + 154, hy = my - 8, hw = 94, hh = 84;
+  const mx = Math.max(0.001, ...S.w);
+  const set = [0, 2, 4, 5, 7, 9, 11].map(k => (S.setRoot + k) % 12);
+  for (let i = 0; i < 12; i++) {
+    const v = S.w[i] / mx, bw = hw / 12;
+    fill(hx + i * bw, hy + hh - v * hh, bw - 2, v * hh, set.includes(i) ? accent(0.85) : 'rgba(255,96,96,0.8)');
+  }
+  line(hx, hy + hh + 1, hx + hw, hy + hh + 1, WHITE(0.25));
+  ['C', 'E', 'G#'].forEach((n, k) => txt(n, hx + [0, 4, 8][k] * hw / 12 + 2, hy + hh + 12, 7, WHITE(0.4), 'left', 400, 0));
+  txt('PITCH CLASS', hx, y + h - 12, 7.5, WHITE(0.4), 'left', 400, 0.1);
+  txt('MODE · LUMA', x + 14, y + h - 12, 7.5, WHITE(0.4), 'left', 400, 0.1);
+}
+
+function vmPanel(t) {
+  const [x, y, w, h] = RECT.vm;
+  panel(x, y, w, h, 'MEMBRANE Vm', 'PYR L5 #0412');
+  let v = -70 + 0.6 * Math.sin(t * 9);
+  for (const e of S.events) {
+    const d = t - e[0];
+    if (d < 0 || d > 1.2) continue;
+    if (d < 0.03) v += (110 * e[2]) * (d / 0.03);
+    else if (d < 0.11) v += (110 * e[2]) * (1 - (d - 0.03) / 0.08) - 12 * ((d - 0.03) / 0.08);
+    else v += -12 * Math.exp(-(d - 0.11) / 0.25);
+  }
+  S.vm.push([t, Math.min(45, v)]);
+  while (S.vm.length && t - S.vm[0][0] > 4) S.vm.shift();
+  const px = x + 34, pw = w - 46, py = y + 36, ph = h - 58;
+  const yv = mv => py + ph * (1 - (mv + 90) / 140);
+  [40, -70].forEach(mv => { line(px, yv(mv), px + pw, yv(mv), WHITE(mv === -70 ? 0.22 : 0.1)); txt(`${mv}`, px - 6, yv(mv) + 3, 7, WHITE(0.4), 'right', 400, 0); });
+  g.strokeStyle = accent(0.95); g.lineWidth = 1.3; g.beginPath();
+  S.vm.forEach(([tt, mv], i) => { const xx = px + pw * (1 - (t - tt) / 4); i ? g.lineTo(xx, yv(mv)) : g.moveTo(xx, yv(mv)); });
+  g.stroke();
+  txt(`${S.vm.length ? S.vm[S.vm.length - 1][1].toFixed(1) : '-70.0'} mV`, x + w - 12, y + h - 10, 9, WHITE(0.9), 'right', 700);
+  txt('-4 s', px, y + h - 10, 7, WHITE(0.4), 'left', 400, 0);
+}
+
+function mapPanel(t) {
+  const [x, y, w, h] = RECT.map;
+  panel(x, y, w, h, 'PARAMETER MAP', 'AUDIO → TISSUE');
+  const rows = [
+    ['KEY', 'HUE', S.hue, S.hue.toFixed(2)],
+    ['MODE', 'LUMA', S.bri, S.bri.toFixed(2)],
+    ['DISSONANCE', 'SPINES', S.spike, S.spike.toFixed(2)],
+    ['VELOCITY', 'AP', S.vel, S.vel.toFixed(2)],
+    ['DENSITY', 'FLOW', S.wob, S.nps.toFixed(0) + ' n/s'],
+  ];
+  rows.forEach(([a, b, v, sv], i) => {
+    const yy = y + 46 + i * 20;
+    txt(a, x + 14, yy, 8, WHITE(0.6), 'left', 400, 0.06);
+    txt('→', x + 92, yy, 8.5, accent(0.95), 'left');
+    txt(b, x + 106, yy, 8, WHITE(0.95), 'left', 700, 0.06);
+    bar(x + 156, yy - 5, 46, 3, v, accent(0.85));
+    txt(sv, x + w - 12, yy, 8, WHITE(0.65), 'right', 400, 0);
+  });
+}
+
+function rasterPanel(t) {
+  const [x, y, w, h] = RECT.raster;
+  panel(x, y, w, h, 'SPIKE RASTER', `${UNITS} / ${S.cells} UNITS · 6 s · SPIKES ${S.fired}`);
+  const px = x + 30, pw = w - 44, py = y + 36, ph = h - 52;
+  if (Math.random() < 0.35) S.raster.push([t, Math.floor(Math.random() * UNITS)]);
+  while (S.raster.length && t - S.raster[0][0] > 6) S.raster.shift();
+  for (let u = 0; u < UNITS; u += 12) txt(String(u).padStart(2, '0'), px - 6, py + (u + 0.5) * ph / UNITS + 3, 7, WHITE(0.35), 'right', 400, 0);
+  for (const [tt, u] of S.raster) {
+    if (tt > t) continue;
+    const xx = px + pw * (1 - (t - tt) / 6), yy = py + u * ph / UNITS;
+    const fresh = t - tt < 0.25;
+    fill(xx, yy + 0.5, fresh ? 2 : 1.4, Math.max(1, ph / UNITS - 1), fresh ? accent(1) : WHITE(0.6));
+  }
+  txt('-6 s', px, y + h - 6, 7, WHITE(0.35), 'left', 400, 0);
+  txt('NOW', px + pw, y + h - 6, 7, WHITE(0.55), 'right', 400, 0.08);
+}
+
+const TAGS = [
+  ['PYRAMIDAL NEURON', 'L5 · APICAL DENDRITE'], ['ASTROCYTE', 'PROTOPLASMIC · GFAP+'],
+  ['DENDRITIC SPINE', 'MUSHROOM · Ø 0.6 µm'], ['AXON BOUTON', 'EN PASSANT'], ['SOMA', 'Ø 18 µm']];
+function annotations(t) {
+  for (let i = 0; i < 3; i++) {
+    const k = (Math.floor(t / 7) + i * 2) % TAGS.length;
+    const ph = t * 0.06 + i * 2.1;
+    const px = 170 + 380 * (0.5 + 0.45 * Math.sin(ph * 1.3 + i));
+    const py = 560 + 330 * (0.5 + 0.45 * Math.cos(ph * 0.9 + i * 1.7));
+    const right = px < W / 2;
+    const lx = right ? px + 70 : px - 70, ly = py - 40;
+    const pulse = S.events.length ? Math.max(0, 1 - (t - S.events[S.events.length - 1][0]) * 2) : 0;
+    g.strokeStyle = accent(0.95); g.lineWidth = 1;
+    g.beginPath(); g.arc(px, py, 4 + pulse * 7, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = WHITE(0.95); g.beginPath(); g.arc(px, py, 1.6, 0, Math.PI * 2); g.fill();
+    line(px, py, lx, ly, WHITE(0.55));
+    line(lx, ly, lx + (right ? 80 : -80), ly, WHITE(0.55));
+    const tx = right ? lx + 2 : lx - 80;
+    txt(TAGS[k][0], tx, ly - 5, 8.5, WHITE(0.95), 'left', 700, 0.08);
+    txt(TAGS[k][1], tx, ly + 11, 7.5, WHITE(0.55), 'left', 400, 0.06);
+  }
+}
+
+function edges(t) {
+  vtxt('PITCH-CLASS SET  →  HUE', 8, 470, 8.5, WHITE(0.5));
+  vtxt('ACTION POTENTIAL  ·  CASCADE', W - 12, 500, 8.5, WHITE(0.45));
+  for (let yy = 470; yy < 1000; yy += 20) line(0, yy, yy % 100 === 0 ? 8 : 4, yy, WHITE(0.3));
+  line(22, 980, 102, 980, WHITE(0.85), 1.5); line(22, 976, 22, 984, WHITE(0.85)); line(102, 976, 102, 984, WHITE(0.85));
+  txt('50 µm', 108, 983, 8, WHITE(0.8), 'left', 400, 0.06);
+  brackets(120, 500, 480, 470, 16, WHITE(0.32));
+  txt(`Z ${(-12.0 + Math.sin(t * 0.3) * 0.4).toFixed(2)} mm · FOCUS 0.30 · ƒ/1.4`, 600, 494, 7.5, WHITE(0.45), 'right', 400, 0.06);
+}
+
+function shade() {
+  const gr = g.createLinearGradient(0, 0, 0, 200);
+  gr.addColorStop(0, 'rgba(0,0,0,0.0)'); gr.addColorStop(0.5, 'rgba(0,0,0,0.35)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, W, 200);
+}
+
+// ------------------------------------------------------------------ loop
+function frame() {
+  const t = now();
+  demoTick(t);
+  g.clearRect(0, 0, W, H);
+  shade(); header(t); edges(t); annotations(t);
+  scalePanel(t); vmPanel(t); mapPanel(t); rasterPanel(t);
+  requestAnimationFrame(frame);
+}
+document.fonts.load('700 12px SynapseMono').finally(() => requestAnimationFrame(frame));
+</script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+[
+ {
+  "name": "LIB_pyramidal_0",
+  "kind": "pyramidal",
+  "radius": 6.0,
+  "verts": 39442,
+  "spines": 564,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_pyramidal_0.obj"
+ },
+ {
+  "name": "LIB_pyramidal_1",
+  "kind": "pyramidal",
+  "radius": 6.0,
+  "verts": 48530,
+  "spines": 696,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_pyramidal_1.obj"
+ },
+ {
+  "name": "LIB_pyramidal_2",
+  "kind": "pyramidal",
+  "radius": 6.0,
+  "verts": 47298,
+  "spines": 681,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_pyramidal_2.obj"
+ },
+ {
+  "name": "LIB_pyramidal_3",
+  "kind": "pyramidal",
+  "radius": 6.0,
+  "verts": 49634,
+  "spines": 711,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_pyramidal_3.obj"
+ },
+ {
+  "name": "LIB_stellate_0",
+  "kind": "stellate",
+  "radius": 3.5,
+  "verts": 20298,
+  "spines": 238,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_stellate_0.obj"
+ },
+ {
+  "name": "LIB_stellate_1",
+  "kind": "stellate",
+  "radius": 3.5,
+  "verts": 26746,
+  "spines": 338,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_stellate_1.obj"
+ },
+ {
+  "name": "LIB_stellate_2",
+  "kind": "stellate",
+  "radius": 3.5,
+  "verts": 29946,
+  "spines": 384,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_stellate_2.obj"
+ },
+ {
+  "name": "LIB_astro_0",
+  "kind": "astro",
+  "radius": 1.6,
+  "verts": 30962,
+  "spines": 0,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_astro_0.obj"
+ },
+ {
+  "name": "LIB_astro_1",
+  "kind": "astro",
+  "radius": 1.6,
+  "verts": 32026,
+  "spines": 0,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_astro_1.obj"
+ },
+ {
+  "name": "LIB_astro_2",
+  "kind": "astro",
+  "radius": 1.6,
+  "verts": 28002,
+  "spines": 0,
+  "file": "/Users/mujganar/VJ-PROJECTS/NEURON_SCALE/geo/library/LIB_astro_2.obj"
+ }
+]
